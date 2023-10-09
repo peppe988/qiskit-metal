@@ -536,6 +536,7 @@ class CircuitGraph:
         """
         dim = len(self.idx)
         C_n = np.zeros((dim, dim))
+        #questo for looppa su i nodi, vedi messaggio:
         for c_g in self._c_graphs:
             C_n += self._adj_list_to_mat(c_g)
         return LabeledNdarray(C_n, self.orig_node_basis)
@@ -970,6 +971,61 @@ class TransmonBuilder(QuantumBuilder):
         subsystem._h_params[node] = dict(EJ=EJ, EC=EC, Q_zpf=Q_zpf)
         subsystem._h_params[node]['default_charge_op'] = Operator(
             transmon.n_operator(), False)
+
+class Transmon_g_CPR_Builder(QuantumBuilder):
+    """
+    Concrete builder class for a type of quantum subsystem
+    Each subsystem of a composite system calls make_quantum() method of this class
+    to map LOM analysis results, the reduced L and C matrix elements to hamiltonian
+    parameters, such as Ej, Ec and etc
+
+    To create your own custom quantum builder, follow the patterns of the existing
+    ones, such this one, or the other ones implemented in this library
+
+        system_type (str): name of the quantum subsystem
+        default_opts (dict): default options relevant to the type of quantum
+            subsystem. Provide any default values for the paremeters that
+            make_quantum() needs. In the case of qubit subsystems, make_quantum()
+            takes advantage of the scQbuits package (https://scqubits.readthedocs.io).
+            Consequently, the default options correspond to the default options of
+            the qubit classes in scQubits
+    """
+
+    system_type = 'TRANSMON_g_CPR'
+    default_opts = {'ng': 0.001, 'ncut': 200, 'truncated_dim': 10, 'CPR':np.cos}
+
+    # pylint: disable=protected-access
+    # pylint: disable=no-member
+    @set_builder_options
+    def make_quantum(self, subsystem: Subsystem):
+        """ concrete building function for the builder to build the quantum
+        system based on default options and input options set for the
+        Subsystem object
+        """
+        cg = self.cg
+        l_inv_k = cg.L_inv_k
+        c_inv_k = cg.C_inv_k
+
+        subsystem_idx = _find_subsystem_mat_index(cg,
+                                                  subsystem,
+                                                  single_node=True)
+        ss_idx = subsystem_idx[0]
+        subsystem.system_params['subsystem_idx'] = subsystem_idx
+
+        # EJ and EC are in MHz
+        EJ = Convert.Ej_from_Lj(1 / l_inv_k[ss_idx, ss_idx])
+        EC = Convert.Ec_from_Cs(1 / c_inv_k[ss_idx, ss_idx])
+        Q_zpf = 2 * ele
+        builder_options = self.builder_options
+        builder_options.EJ = EJ
+        builder_options.EC = EC
+        transmon_g = scq.Transmon_g_CPR(**builder_options.view_as(scq.Transmon_g_CPR))
+
+        subsystem._quantum_system = transmon_g
+        node = subsystem.nodes[0]
+        subsystem._h_params[node] = dict(EJ=EJ, EC=EC, Q_zpf=Q_zpf)
+        subsystem._h_params[node]['default_charge_op'] = Operator(
+            transmon_g.n_operator(), False)
 
 
 class FluxoniumBuilder(QuantumBuilder):
